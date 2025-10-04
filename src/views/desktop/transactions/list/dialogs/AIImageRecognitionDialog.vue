@@ -1,5 +1,5 @@
 <template>
-    <v-dialog width="800" :persistent="loading || recognizing || !!imageFile" v-model="showState">
+    <v-dialog width="800" :persistent="loading || recognizing || !!imageFile" v-model="showState" @paste="onPaste">
         <v-card class="pa-2 pa-sm-4 pa-md-4">
             <template #title>
                 <div class="d-flex align-center justify-center">
@@ -15,8 +15,9 @@
                      @drop.prevent="onDrop">
                     <div class="d-flex w-100 fill-height justify-center align-center justify-content-center px-4"
                          :class="{ 'dropzone': true, 'dropzone-dragover': isDragOver }" style="height: 480px">
-                        <h3 class="pa-2 bg-grey-200" v-if="!imageFile && !isDragOver">{{ tt('Drag and drop a receipt or transaction image here, or click to select one') }}</h3>
-                        <h3 class="pa-2 bg-grey-200" v-if="isDragOver">{{ tt('Release to load image') }}</h3>
+                        <h3 class="pa-2 bg-grey-200" v-if="!loading && !imageFile && !isDragOver">{{ tt('You can drag and drop, paste or click to select a receipt or transaction image') }}</h3>
+                        <h3 class="pa-2 bg-grey-200" v-if="!loading && isDragOver">{{ tt('Release to load image') }}</h3>
+                        <h3 class="pa-2" v-if="loading">{{ tt('Loading image...') }}</h3>
                     </div>
                     <v-img height="480px" :class="{ 'cursor-pointer': !loading && !recognizing && !isDragOver }"
                            :src="imageSrc" @click="showOpenImageDialog">
@@ -33,8 +34,10 @@
                         {{ tt('Recognize') }}
                         <v-progress-circular indeterminate size="22" class="ms-2" v-if="recognizing"></v-progress-circular>
                     </v-btn>
+                    <v-btn color="secondary" variant="tonal" :disabled="loading"
+                           @click="cancelRecognize" v-if="recognizing && cancelRecognizingUuid">{{ tt('Cancel Recognition') }}</v-btn>
                     <v-btn color="secondary" variant="tonal" :disabled="loading || recognizing"
-                           @click="cancel">{{ tt('Cancel') }}</v-btn>
+                           @click="cancel" v-if="!recognizing || !cancelRecognizingUuid">{{ tt('Cancel') }}</v-btn>
                 </div>
             </v-card-text>
         </v-card>
@@ -58,6 +61,7 @@ import { SUPPORTED_IMAGE_EXTENSIONS } from '@/consts/file.ts';
 
 import type { RecognizedReceiptImageResponse } from '@/models/large_language_model.ts';
 
+import { generateRandomUUID } from '@/lib/misc.ts';
 import { compressJpgImage } from '@/lib/ui/common.ts';
 import logger from '@/lib/logger.ts';
 
@@ -76,17 +80,24 @@ let rejectFunc: ((reason?: unknown) => void) | null = null;
 const showState = ref<boolean>(false);
 const loading = ref<boolean>(false);
 const recognizing = ref<boolean>(false);
+const cancelRecognizingUuid = ref<string | undefined>(undefined);
 const imageFile = ref<File | null>(null);
 const imageSrc = ref<string | undefined>(undefined);
 const isDragOver = ref<boolean>(false);
 
 function loadImage(file: File): void {
+    loading.value = true;
+    imageFile.value = null;
+    imageSrc.value = undefined;
+
     compressJpgImage(file, 1280, 1280, 0.8).then(blob => {
         imageFile.value = KnownFileType.JPG.createFileFromBlob(blob, "image");
         imageSrc.value = URL.createObjectURL(blob);
+        loading.value = false;
     }).catch(error => {
         imageFile.value = null;
         imageSrc.value = undefined;
+        loading.value = false;
         logger.error('failed to compress image', error);
         snackbar.value?.showError('Unable to load image');
     });
@@ -96,6 +107,7 @@ function open(): Promise<RecognizedReceiptImageResponse> {
     showState.value = true;
     loading.value = false;
     recognizing.value = false;
+    cancelRecognizingUuid.value = undefined;
     imageFile.value = null;
     imageSrc.value = undefined;
 
@@ -136,16 +148,24 @@ function recognize(): void {
         return;
     }
 
+    cancelRecognizingUuid.value = generateRandomUUID();
     recognizing.value = true;
 
     transactionsStore.recognizeReceiptImage({
-        imageFile: imageFile.value
+        imageFile: imageFile.value,
+        cancelableUuid: cancelRecognizingUuid.value
     }).then(response => {
         resolveFunc?.(response);
         showState.value = false;
         recognizing.value = false;
+        cancelRecognizingUuid.value = undefined;
     }).catch(error => {
+        if (error.canceled) {
+            return;
+        }
+
         recognizing.value = false;
+        cancelRecognizingUuid.value = undefined;
 
         if (!error.processed) {
             snackbar.value?.showError(error);
@@ -153,11 +173,24 @@ function recognize(): void {
     });
 }
 
+function cancelRecognize(): void {
+    if (!cancelRecognizingUuid.value) {
+        return;
+    }
+
+    transactionsStore.cancelRecognizeReceiptImage(cancelRecognizingUuid.value);
+    recognizing.value = false;
+    cancelRecognizingUuid.value = undefined;
+
+    snackbar.value?.showMessage('User Canceled');
+}
+
 function cancel(): void {
     rejectFunc?.();
     showState.value = false;
     loading.value = false;
     recognizing.value = false;
+    cancelRecognizingUuid.value = undefined;
     imageFile.value = null;
     imageSrc.value = undefined;
 }
@@ -183,6 +216,27 @@ function onDrop(event: DragEvent): void {
 
     if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length && event.dataTransfer.files[0]) {
         loadImage(event.dataTransfer.files[0] as File);
+    }
+}
+
+function onPaste(event: ClipboardEvent) {
+    if (!event.clipboardData) {
+        event.preventDefault();
+        return;
+    }
+
+    for (let i = 0; i < event.clipboardData.items.length; i++) {
+        const item = event.clipboardData.items[i];
+
+        if (item && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+
+            if (file) {
+                loadImage(file);
+                event.preventDefault();
+                return;
+            }
+        }
     }
 }
 
