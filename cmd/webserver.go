@@ -353,6 +353,7 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.GET("/transactions/get.json", bindApi(api.Transactions.TransactionGetHandler))
 			apiV1Route.POST("/transactions/add.json", bindApi(api.Transactions.TransactionCreateHandler))
 			apiV1Route.POST("/transactions/modify.json", bindApi(api.Transactions.TransactionModifyHandler))
+			apiV1Route.POST("/transactions/move/all.json", bindApi(api.Transactions.TransactionMoveAllBetweenAccountsHandler))
 			apiV1Route.POST("/transactions/delete.json", bindApi(api.Transactions.TransactionDeleteHandler))
 
 			if config.EnableDataImport {
@@ -531,7 +532,7 @@ func bindCachedJs(fn core.DataHandlerFunc, store persistence.CacheStore) gin.Han
 		if err != nil {
 			utils.PrintDataErrorResult(c, "text/javascript", err)
 		} else {
-			utils.PrintDataSuccessResult(c, "text/javascript", "", result)
+			utils.PrintDataSuccessResult(c, "text/javascript; charset=utf-8", "", result)
 		}
 	})
 }
@@ -544,7 +545,7 @@ func bindCsv(fn core.DataHandlerFunc) gin.HandlerFunc {
 		if err != nil {
 			utils.PrintDataErrorResult(c, "text/text", err)
 		} else {
-			utils.PrintDataSuccessResult(c, "text/csv", fileName, result)
+			utils.PrintDataSuccessResult(c, "text/csv; charset=utf-8", fileName, result)
 		}
 	}
 }
@@ -557,7 +558,7 @@ func bindTsv(fn core.DataHandlerFunc) gin.HandlerFunc {
 		if err != nil {
 			utils.PrintDataErrorResult(c, "text/text", err)
 		} else {
-			utils.PrintDataSuccessResult(c, "text/tab-separated-values", fileName, result)
+			utils.PrintDataSuccessResult(c, "text/tab-separated-values; charset=utf-8", fileName, result)
 		}
 	}
 }

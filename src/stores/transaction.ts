@@ -1103,6 +1103,51 @@ export const useTransactionsStore = defineStore('transactions', () => {
         });
     }
 
+    function moveAllTransactionsBetweenAccounts({ fromAccountId, toAccountId }: { fromAccountId: string, toAccountId: string }): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            services.moveAllTransactionsBetweenAccounts({ fromAccountId, toAccountId }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to move transactions' });
+                    return;
+                }
+
+                if (!transactionListStateInvalid.value) {
+                    updateTransactionListInvalidState(true);
+                }
+
+                if (!transactionReconciliationStatementStateInvalid.value) {
+                    updateTransactionReconciliationStatementInvalidState(true);
+                }
+
+                if (!accountsStore.accountListStateInvalid) {
+                    accountsStore.updateAccountListInvalidState(true);
+                }
+
+                if (!overviewStore.transactionOverviewStateInvalid) {
+                    overviewStore.updateTransactionOverviewInvalidState(true);
+                }
+
+                if (!statisticsStore.transactionStatisticsStateInvalid) {
+                    statisticsStore.updateTransactionStatisticsInvalidState(true);
+                }
+
+                resolve(data.result);
+            }).catch(error => {
+                logger.error('failed to move transactions', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to move transactions' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
     function deleteTransaction({ transaction, defaultCurrency, beforeResolve }: { transaction: TransactionInfoResponse, defaultCurrency: string, beforeResolve?: BeforeResolveFunction }): Promise<boolean> {
         return new Promise((resolve, reject) => {
             services.deleteTransaction({
@@ -1160,9 +1205,9 @@ export const useTransactionsStore = defineStore('transactions', () => {
         });
     }
 
-    function recognizeReceiptImage({ imageFile }: { imageFile: File }): Promise<RecognizedReceiptImageResponse> {
+    function recognizeReceiptImage({ imageFile, cancelableUuid }: { imageFile: File, cancelableUuid?: string }): Promise<RecognizedReceiptImageResponse> {
         return new Promise((resolve, reject) => {
-            services.recognizeReceiptImage({ imageFile }).then(response => {
+            services.recognizeReceiptImage({ imageFile, cancelableUuid }).then(response => {
                 const data = response.data;
 
                 if (!data || !data.success || !data.result) {
@@ -1172,6 +1217,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
                 resolve(data.result);
             }).catch(error => {
+                if (error.canceled) {
+                    reject(error);
+                }
+
                 logger.error('failed to recognize image', error);
 
                 if (error.response && error.response.data && error.response.data.errorMessage) {
@@ -1183,6 +1232,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 }
             });
         });
+    }
+
+    function cancelRecognizeReceiptImage(cancelableUuid: string): void {
+        services.cancelRequest(cancelableUuid);
     }
 
     function parseImportDsvFile({ fileType, fileEncoding, importFile }: { fileType: string, fileEncoding?: string, importFile: File }): Promise<string[][]> {
@@ -1397,8 +1450,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
         getReconciliationStatements,
         getTransaction,
         saveTransaction,
+        moveAllTransactionsBetweenAccounts,
         deleteTransaction,
         recognizeReceiptImage,
+        cancelRecognizeReceiptImage,
         parseImportDsvFile,
         parseImportTransaction,
         importTransactions,

@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	ebkWorkDirEnvName     = "EBK_WORK_DIR"
-	ebkEnvNamePrefix      = "EBK"
-	defaultConfigPath     = "/conf/ezbookkeeping.ini"
-	defaultStaticRootPath = "public"
+	ebkWorkDirEnvName                  = "EBK_WORK_DIR"
+	ebkConfigItemValueEnvNamePrefix    = "EBK"
+	ebkConfigItemFilePathEnvNamePrefix = "EBKCFP"
+	defaultConfigPath                  = "/conf/ezbookkeeping.ini"
+	defaultStaticRootPath              = "public"
 )
 
 // SystemMode represents running mode of system
@@ -349,19 +350,21 @@ type Config struct {
 	MaxFailuresPerIpPerMinute             uint32
 	MaxFailuresPerUserPerMinute           uint32
 
-	// User
-	EnableUserRegister               bool
-	EnableUserVerifyEmail            bool
-	EnableUserForceVerifyEmail       bool
+	// Auth
+	EnableTwoFactor                  bool
 	EnableUserForgetPassword         bool
 	ForgetPasswordRequireVerifyEmail bool
-	EnableTwoFactor                  bool
-	EnableTransactionPictures        bool
-	MaxTransactionPictureFileSize    uint32
-	EnableScheduledTransaction       bool
-	AvatarProvider                   core.UserAvatarProviderType
-	MaxAvatarFileSize                uint32
-	DefaultFeatureRestrictions       core.UserFeatureRestrictions
+
+	// User
+	EnableUserRegister            bool
+	EnableUserVerifyEmail         bool
+	EnableUserForceVerifyEmail    bool
+	EnableTransactionPictures     bool
+	MaxTransactionPictureFileSize uint32
+	EnableScheduledTransaction    bool
+	AvatarProvider                core.UserAvatarProviderType
+	MaxAvatarFileSize             uint32
+	DefaultFeatureRestrictions    core.UserFeatureRestrictions
 
 	// Data
 	EnableDataExport  bool
@@ -494,6 +497,12 @@ func LoadConfiguration(configFilePath string) (*Config, error) {
 	}
 
 	err = loadSecurityConfiguration(config, cfgFile, "security")
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = loadAuthConfiguration(config, cfgFile, "auth")
 
 	if err != nil {
 		return nil, err
@@ -946,13 +955,18 @@ func loadSecurityConfiguration(config *Config, configFile *ini.File, sectionName
 	return nil
 }
 
+func loadAuthConfiguration(config *Config, configFile *ini.File, sectionName string) error {
+	config.EnableTwoFactor = getConfigItemBoolValue(configFile, sectionName, "enable_two_factor", true)
+	config.EnableUserForgetPassword = getConfigItemBoolValue(configFile, sectionName, "enable_forget_password", false)
+	config.ForgetPasswordRequireVerifyEmail = getConfigItemBoolValue(configFile, sectionName, "forget_password_require_email_verify", false)
+
+	return nil
+}
+
 func loadUserConfiguration(config *Config, configFile *ini.File, sectionName string) error {
 	config.EnableUserRegister = getConfigItemBoolValue(configFile, sectionName, "enable_register", false)
 	config.EnableUserVerifyEmail = getConfigItemBoolValue(configFile, sectionName, "enable_email_verify", false)
 	config.EnableUserForceVerifyEmail = getConfigItemBoolValue(configFile, sectionName, "enable_force_email_verify", false)
-	config.EnableUserForgetPassword = getConfigItemBoolValue(configFile, sectionName, "enable_forget_password", false)
-	config.ForgetPasswordRequireVerifyEmail = getConfigItemBoolValue(configFile, sectionName, "forget_password_require_email_verify", false)
-	config.EnableTwoFactor = getConfigItemBoolValue(configFile, sectionName, "enable_two_factor", true)
 	config.EnableTransactionPictures = getConfigItemBoolValue(configFile, sectionName, "enable_transaction_picture", false)
 	config.MaxTransactionPictureFileSize = getConfigItemUint32Value(configFile, sectionName, "max_transaction_picture_size", defaultTransactionPictureFileMaxSize)
 	config.EnableScheduledTransaction = getConfigItemBoolValue(configFile, sectionName, "enable_scheduled_transaction", false)
@@ -1170,8 +1184,7 @@ func getNotificationConfiguration(configFile *ini.File, sectionName string, enab
 }
 
 func getConfigItemIsSet(configFile *ini.File, sectionName string, itemName string) bool {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		return true
@@ -1187,8 +1200,7 @@ func getConfigItemIsSet(configFile *ini.File, sectionName string, itemName strin
 }
 
 func getConfigItemStringValue(configFile *ini.File, sectionName string, itemName string, defaultValue ...string) string {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		return environmentValue
@@ -1204,8 +1216,7 @@ func getConfigItemStringValue(configFile *ini.File, sectionName string, itemName
 }
 
 func getConfigItemUint8Value(configFile *ini.File, sectionName string, itemName string, defaultValue uint8) uint8 {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		value, err := strconv.ParseUint(environmentValue, 10, 8)
@@ -1226,8 +1237,7 @@ func getConfigItemUint8Value(configFile *ini.File, sectionName string, itemName 
 }
 
 func getConfigItemUint16Value(configFile *ini.File, sectionName string, itemName string, defaultValue uint16) uint16 {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		value, err := strconv.ParseUint(environmentValue, 10, 16)
@@ -1248,8 +1258,7 @@ func getConfigItemUint16Value(configFile *ini.File, sectionName string, itemName
 }
 
 func getConfigItemUint32Value(configFile *ini.File, sectionName string, itemName string, defaultValue uint32) uint32 {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		value, err := strconv.ParseUint(environmentValue, 10, 32)
@@ -1270,8 +1279,7 @@ func getConfigItemUint32Value(configFile *ini.File, sectionName string, itemName
 }
 
 func getConfigItemBoolValue(configFile *ini.File, sectionName string, itemName string, defaultValue bool) bool {
-	environmentKey := getEnvironmentKey(sectionName, itemName)
-	environmentValue := os.Getenv(environmentKey)
+	environmentValue := getConfigItemValueFromEnvironment(sectionName, itemName)
 
 	if len(environmentValue) > 0 {
 		value, err := strconv.ParseBool(environmentValue)
@@ -1285,8 +1293,30 @@ func getConfigItemBoolValue(configFile *ini.File, sectionName string, itemName s
 	return section.Key(itemName).MustBool(defaultValue)
 }
 
-func getEnvironmentKey(sectionName string, itemName string) string {
-	return fmt.Sprintf("%s_%s_%s", ebkEnvNamePrefix, strings.ToUpper(sectionName), strings.ToUpper(itemName))
+func getConfigItemValueFromEnvironment(sectionName string, itemName string) string {
+	itemFilePathEnvironmentKey := getConfigItemFilePathEnvironmentKey(sectionName, itemName)
+	itemFilePath := os.Getenv(itemFilePathEnvironmentKey)
+
+	if itemFilePath != "" {
+		content, err := os.ReadFile(itemFilePath)
+
+		if err == nil {
+			return string(content)
+		}
+	}
+
+	itemValueEnvironmentKey := getConfigItemValueEnvironmentKey(sectionName, itemName)
+	itemValueEnvironmentValue := os.Getenv(itemValueEnvironmentKey)
+
+	return itemValueEnvironmentValue
+}
+
+func getConfigItemFilePathEnvironmentKey(sectionName string, itemName string) string {
+	return fmt.Sprintf("%s_%s_%s", ebkConfigItemFilePathEnvNamePrefix, strings.ToUpper(sectionName), strings.ToUpper(itemName))
+}
+
+func getConfigItemValueEnvironmentKey(sectionName string, itemName string) string {
+	return fmt.Sprintf("%s_%s_%s", ebkConfigItemValueEnvNamePrefix, strings.ToUpper(sectionName), strings.ToUpper(itemName))
 }
 
 func getLogLevel(logLevelStr string) (Level, error) {
